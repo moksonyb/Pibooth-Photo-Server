@@ -1,1 +1,1 @@
-docker run  -d -v $PWD/file-server:/app/download -p 3000:3000 --restart=always fileserver:1.1
+docker run  -d -v $PWD/image-server:/app/download -p 3000:3000 --restart=always imageserver:1.1
