@@ -112,15 +112,18 @@ if (process.argv[2] && process.argv[2] === '-h') {
         rows.forEach(row => {
             exp.setUTCSeconds(row.expiration)
             if (exp < new Date() && row.expiration != 0) {
-                console.log('\x1b[31m%s\x1b[0m', row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : ' + row.expiration);
+                console.log('\x1b[31m%s\x1b[0m', row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : ' + exp.toISOString());
             } else {
-                console.log(row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : ' + row.expiration);
+                if (row.expiration == 0) {
+                    console.log(row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : Never expires');
+                } else {
+                    console.log(row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : ' + exp.toISOString());
+                }
             }
         });
 
         console.log('');
         console.log('\x1b[31m%s\x1b[0m', 'Red color indicates expired API tokens');
-        console.log('Note: 0 expiration means never expire');
         console.log('Use -s remove [id] to remove an API token');
         console.log('Use -c to remove all expired images and API tokens');
         console.log('Use -purge tokens to remove all API tokens');
@@ -269,10 +272,14 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function generateApiToken(name, expiration, callback) {
+function generateApiToken(name, expirationInDays, callback) {
     let token = generateToken();
     let secondsNow = new Date().getTime() / 1000;
-    expiration == 0 ? 0 : (parseInt(expiration) * 3600 * 24) + secondsNow; // Convert expiration to seconds and add to current time 0 means never expire
+    let expiration = 0;
+
+    if (expirationInDays != 0) {
+        expiration = (expirationInDays * 3600 * 24) + secondsNow; // Convert expiration to seconds and add to current time 0 means never expire
+    }
 
     db.run('INSERT INTO credentials (name, apitoken, expiration) VALUES (?, ?, ?)', [name, token, expiration], function (err) {
         if (err) {
