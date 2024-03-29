@@ -9,6 +9,7 @@ const requestIp = require('request-ip')
 let port = 3000;
 let clientIP;
 let db = initializeDatabase(); // Initialize the database on server start
+const cleanupInterval = 24 * 60 * 60 * 1000; // 24 hours in milliseconds - cleanup all expired images and tokens
 const httpServer = http.createServer(requestHandler);
 
 if (process.argv[2] && process.argv[2] === '-h') {
@@ -129,38 +130,9 @@ if (process.argv[2] && process.argv[2] === '-h') {
     });
 } else if (process.argv[2] && process.argv[2] === '-c') {
     console.log('Removing expired images and API tokens');
-    let secondsNow = new Date().getTime() / 1000;
-    files = fs.readdirSync(path.join(__dirname, 'download'));
-    files.forEach(file => {
-        db.get('SELECT expiration expiration FROM images WHERE filename = ?', [file], function (err, row) {
-            if (err || !row) {
-                return;
-            }
-            if (secondsNow > row.expiration) {
-                fs.unlinkSync(path.join(__dirname, 'download', file));
-            }
-        });
-    });
-
-    sleep(250).then(() => {
-        db.run('DELETE FROM images WHERE expiration < ?', [secondsNow], function (err) {
-            if (err) {
-                console.error('Error removing expired images from database', err);
-                return;
-            }
-            console.log('Expired images removed successfully');
-            console.log('');
-        });
-    });
-
-    db.run('DELETE FROM credentials WHERE expiration IS NOT 0 AND expiration < ?', [secondsNow], function (err) {
-        if (err) {
-            console.error('Error removing expired api tokens from database', err);
-            return;
-        }
-        console.log('');
-        console.log('Expired API tokens removed successfully');
-        console.log('');
+    console.log('');
+    cleanupExpiredItems(() => {
+        console.log('Cleanup completed.');
     });
 } else if (process.argv[2] && process.argv[2] === '-purge') {
     if (process.argv[3] && process.argv[3] === 'images') {
@@ -213,10 +185,14 @@ if (process.argv[2] && process.argv[2] === '-h') {
         });
     }
 } else {
+    setInterval(performCleanup, cleanupInterval); // Perform cleanup at regular intervals
+    console.log('Server is starting...');
+    console.log('Cleanup interval: ' + cleanupInterval/(60*60*1000) + ' hours');
     httpServer.listen(port, () => {
         console.log('');
         console.log(new Date().toISOString());
         console.log('Server is listening on port ' + port);
+        console.log('');
     });
 }
 
@@ -265,6 +241,60 @@ function initializeDatabase() {
     }
 
     return db;
+}
+
+function performCleanup() {
+    console.log(new Date().toISOString());
+    console.log('Performing cleanup...');
+    console.log('');
+    cleanupExpiredItems(() => {
+        console.log('Cleanup completed.');
+    });
+}
+
+function cleanupExpiredItems(callback) {
+    let secondsNow = new Date().getTime() / 1000;
+    let files = fs.readdirSync(path.join(__dirname, 'download'));
+    
+    // Remove expired images from storage
+    files.forEach(file => {
+        db.get('SELECT expiration expiration FROM images WHERE filename = ?', [file], function (err, row) {
+            if (err || !row) {
+                return;
+            }
+            if (secondsNow > row.expiration) {
+                fs.unlinkSync(path.join(__dirname, 'download', file));
+            }
+        });
+    });
+
+    // Wait for a short time before deleting records from the database
+    sleep(250).then(() => {
+        // Delete expired images from the database
+        db.run('DELETE FROM images WHERE expiration < ?', [secondsNow], function (err) {
+            if (err) {
+                console.error('Error removing expired images from database', err);
+                return;
+            }
+            console.log('Expired images removed successfully');
+            console.log('');
+        });
+
+        // Delete expired API tokens from the database
+        db.run('DELETE FROM credentials WHERE expiration IS NOT 0 AND expiration < ?', [secondsNow], function (err) {
+            if (err) {
+                console.error('Error removing expired API tokens from database', err);
+                return;
+            }
+            console.log('Expired API tokens removed successfully');
+            console.log('');
+            
+            // Invoke the callback once cleanup is complete
+            if (callback && typeof callback === 'function') {
+                callback();
+            }
+        });
+    });
 }
 
 function sleep(ms) {
