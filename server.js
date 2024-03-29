@@ -3,8 +3,11 @@ const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
+const exp = require('constants');
+const requestIp = require('request-ip')
 
 let port = 3000;
+let clientIP;
 let db = initializeDatabase(); // Initialize the database on server start
 const httpServer = http.createServer(requestHandler);
 
@@ -21,7 +24,9 @@ if (process.argv[2] && process.argv[2] === '-h') {
     console.log("node server.js -s List all API tokens and their information");
     console.log("node server.js -s remove [id] Remove an API token by id");
     console.log("node server.js -c Remove all expired images and API tokens");
-    process.exit();
+    console.log("node server.js -purge images Remove all images");
+    console.log("node server.js -purge tokens Remove all API tokens");
+    console.log("node server.js -purge all Remove all images and API tokens");
 } else if (process.argv[2] && process.argv[2] === '-k') {
     console.log('Generating API token');
     generateApiToken(process.argv[3], process.argv[4], (err, token) => {
@@ -30,17 +35,24 @@ if (process.argv[2] && process.argv[2] === '-h') {
             return;
         }
         console.log(token);
-        process.exit();
     });
 } else if (process.argv[2] && process.argv[2] === '-v') {
     console.log('Validating API token');
     validateApiToken(process.argv[3], isValid => {
         console.log(isValid ? 'Token is valid' : 'Token is not valid');
-        process.exit();
     });
 } else if (process.argv[2] && process.argv[2] === '-l') {
     if (process.argv[3] && process.argv[3] === 'remove') {
         console.log('Removing image');
+        files = fs.readdirSync(path.join(__dirname, 'download'));
+        files.forEach(file => {
+            db.get('SELECT filename filename FROM images WHERE id = ?', [process.argv[4]], function (err, row) {
+                if (err || !row) {
+                    return;
+                }
+                fs.unlinkSync(path.join(__dirname, 'download', row.filename));
+            });
+        });
         db.run('DELETE FROM images WHERE id = ?', [process.argv[4]], function (err) {
             if (err) {
                 console.error('Error removing image from database', err);
@@ -60,14 +72,20 @@ if (process.argv[2] && process.argv[2] === '-h') {
         console.log('id : token : filename : ogfilename : date : expiration');
         console.log('--------------------------------------------------------');
         rows.forEach(row => {
-            var exp = new Date(0); // The 0 there is the key, which sets the date to the epoch
+            let exp = new Date(0); // The 0 there is the key, which sets the date to the epoch
             exp.setUTCSeconds(row.expiration)
-            console.log(row.id + ' : ' + row.token + ' : ' + row.filename + ' : ' + row.ogfilename + ' : ' + row.date + ' : ' + exp.toISOString());
+            if (exp < new Date()) {
+                console.log('\x1b[31m%s\x1b[0m', row.id + ' : ' + row.token + ' : ' + row.filename + ' : ' + row.ogfilename + ' : ' + row.date + ' : ' + exp.toISOString());
+            } else {
+                console.log(row.id + ' : ' + row.token + ' : ' + row.filename + ' : ' + row.ogfilename + ' : ' + row.date + ' : ' + exp.toISOString());
+            }
         });
-        process.exit();
+        console.log('');
+        console.log('\x1b[31m%s\x1b[0m', 'Red color indicates expired images');
+        console.log('Use -l remove [id] to remove an image');
+        console.log('Use -c to remove all expired images and API tokens');
+        console.log('Use -purge images to remove all images');
     });
-
-
 } else if (process.argv[2] && process.argv[2] === '-s') {
     if (process.argv[3] && process.argv[3] === 'remove') {
         console.log('Removing API token');
@@ -89,21 +107,119 @@ if (process.argv[2] && process.argv[2] === '-h') {
         console.log('');
         console.log('id : name : apitoken : date : expiration');
         console.log('---------------------------------------------');
+        let exp = new Date(0); // The 0 there is the key, which sets the date to the epoch
+
         rows.forEach(row => {
-            console.log(row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : ' + row.expiration);
+            exp.setUTCSeconds(row.expiration)
+            if (exp < new Date() && row.expiration != 0) {
+                console.log('\x1b[31m%s\x1b[0m', row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : ' + row.expiration);
+            } else {
+                console.log(row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : ' + row.expiration);
+            }
         });
-        process.exit();
+
+        console.log('');
+        console.log('\x1b[31m%s\x1b[0m', 'Red color indicates expired API tokens');
+        console.log('Note: 0 expiration means never expire');
+        console.log('Use -s remove [id] to remove an API token');
+        console.log('Use -c to remove all expired images and API tokens');
+        console.log('Use -purge tokens to remove all API tokens');
+    });
+} else if (process.argv[2] && process.argv[2] === '-c') {
+    console.log('Removing expired images and API tokens');
+    let secondsNow = new Date().getTime() / 1000;
+    files = fs.readdirSync(path.join(__dirname, 'download'));
+    files.forEach(file => {
+        db.get('SELECT expiration expiration FROM images WHERE filename = ?', [file], function (err, row) {
+            if (err || !row) {
+                return;
+            }
+            if (secondsNow > row.expiration) {
+                fs.unlinkSync(path.join(__dirname, 'download', file));
+            }
+        });
     });
 
+    sleep(250).then(() => {
+        db.run('DELETE FROM images WHERE expiration < ?', [secondsNow], function (err) {
+            if (err) {
+                console.error('Error removing expired images from database', err);
+                return;
+            }
+            console.log('Expired images removed successfully');
+            console.log('');
+        });
+    });
 
+    db.run('DELETE FROM credentials WHERE expiration IS NOT 0 AND expiration < ?', [secondsNow], function (err) {
+        if (err) {
+            console.error('Error removing expired api tokens from database', err);
+            return;
+        }
+        console.log('');
+        console.log('Expired API tokens removed successfully');
+        console.log('');
+    });
+} else if (process.argv[2] && process.argv[2] === '-purge') {
+    if (process.argv[3] && process.argv[3] === 'images') {
+        console.log('Removing all images');
+        files = fs.readdirSync(path.join(__dirname, 'download'));
+        files.forEach(file => {
+            fs.unlinkSync(path.join(__dirname, 'download', file));
+        });
+        db.run('DELETE FROM images', function (err) {
+            if (err) {
+                console.error('Error removing images from database', err);
+                return;
+            }
+            console.log('Images removed successfully');
+            console.log('');
+        });
+    } else if (process.argv[3] && process.argv[3] === 'tokens') {
+        console.log('Removing all API tokens');
+        db.run('DELETE FROM credentials', function (err) {
+            if (err) {
+                console.error('Error removing api tokens from database', err);
+                return;
+            }
+            console.log('API tokens removed successfully');
+            console.log('');
+        });
+    } else if (process.argv[3] && process.argv[3] === 'all') {
+        console.log('Removing all images and API tokens');
+        files = fs.readdirSync(path.join(__dirname, 'download'));
+        files.forEach(file => {
+            fs.unlinkSync(path.join(__dirname, 'download', file));
+        });
+        db.run('DELETE FROM images', function (err) {
+            if (err) {
+                console.error('Error removing images from database', err);
+                return;
+            }
+            console.log('');
+            console.log('Images removed successfully');
+            console.log('');
+
+            db.run('DELETE FROM credentials', function (err) {
+                if (err) {
+                    console.error('Error removing api tokens from database', err);
+                    return;
+                }
+                console.log('API tokens removed successfully');
+                console.log('');
+            });
+        });
+    }
 } else {
     httpServer.listen(port, () => {
+        console.log('');
+        console.log(new Date().toISOString());
         console.log('Server is listening on port ' + port);
     });
 }
 
-
 function requestHandler(req, res) {
+    clientIP = requestIp.getClientIp(req);
     if (req.url === '/') {
         sendIndexHtml(res);
         // } else if (req.url === '/list') {
@@ -147,6 +263,10 @@ function initializeDatabase() {
     }
 
     return db;
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function generateApiToken(name, expiration, callback) {
@@ -197,37 +317,26 @@ function sendIndexHtml(res) {
     });
 }
 
-
-// function sendListOfUploadedImages(res) {
-//     let uploadDir = path.join(__dirname, 'download');
-//     fs.readdir(uploadDir, (err, files) => {
-//         if (err) {
-//             console.log(err);
-//             res.writeHead(400, { 'Content-Type': 'application/json' });
-//             res.write(JSON.stringify(err.message));
-//             res.end();
-//         } else {
-//             res.writeHead(200, { 'Content-Type': 'application/json' });
-//             res.write(JSON.stringify(files));
-//             res.end();
-//         }
-//     });
-// }
-
 function sendDisplayedImage(url, res) {
+    console.log('');
+    console.log(new Date().toISOString());
+    console.log('Incoming image display request');
     let token = url.split('/')[2]; // Extract token from URL
     db.get('SELECT filename filename, expiration expiration FROM images WHERE token = ?', [token], function (err, row) {
         if (err || !row) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
             res.end('Image Not Found!');
+            console.log('Image Not Found');
             return;
         }
 
-        let secondsNow = new Date().getTime() / 1000;
+        let exp = new Date(0); // The 0 there is the key, which sets the date to the epoch
+        exp.setUTCSeconds(row.expiration)
 
-        if (secondsNow > row.expiration) {
+        if (new Date() > exp) {
             res.writeHead(401, { 'Content-Type': 'text/plain' });
             res.end('Image expired!');
+            console.log('Image expired');
             return;
         }
 
@@ -237,6 +346,7 @@ function sendDisplayedImage(url, res) {
             if (err) {
                 res.writeHead(404, { 'Content-Type': 'text/plain' });
                 res.write('Image Not Found!');
+                console.log('Image Not Found');
                 res.end();
             } else {
                 const imageBase64 = Buffer.from(data).toString('base64');
@@ -336,25 +446,35 @@ function sendDisplayedImage(url, res) {
                 res.writeHead(200, { 'Content-Type': 'text/html' });
                 res.write(htmlContent);
                 res.end();
+                console.log('File name: ' + fileName);
+                console.log('Image displayed successfully');
             }
         });
     });
 }
 
 function sendDownloadedImage(url, res) {
+    console.log('');
+    console.log(new Date().toISOString());
+    console.log('Incoming image download request');
+    console.log('IP: ' + clientIP);
+    console.log('Token: ' + url.split('/')[2]);
     let token = url.split('/')[2]; // Extract token from URL
     db.get('SELECT filename filename, ogfilename ogfilename, expiration expiration FROM images WHERE token = ?', [token], function (err, row) {
         if (err || !row) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
             res.end('Image Not Found!');
+            console.log('Image Not Found');
             return;
         }
 
-        let secondsNow = new Date().getTime() / 1000;
+        let exp = new Date(0); // The 0 there is the key, which sets the date to the epoch
+        exp.setUTCSeconds(row.expiration)
 
-        if (secondsNow > row.expiration) {
+        if (new Date() > exp) {
             res.writeHead(401, { 'Content-Type': 'text/plain' });
             res.end('Image expired!');
+            console.log('Image expired');
             return;
         }
 
@@ -365,73 +485,100 @@ function sendDownloadedImage(url, res) {
             if (err) {
                 res.writeHead(404, { 'Content-Type': 'text/plain' });
                 res.end('Image Not Found!');
+                console.log('Image Not Found');
             } else {
                 res.writeHead(200, {
                     'Content-Type': 'image/png', // Adjust content type based on the image type
                     'Content-Disposition': `attachment; filename="${ogFileName}"`
                 });
                 res.end(data);
+                console.log('File Name: ' + fileName);
+                console.log('Original file Name: ' + ogFileName);
+                console.log('Image downloaded successfully');
             }
         });
     });
 }
 
 function saveUploadedImage(req, res) {
-    console.log('saving uploaded file');
+    console.log('');
+    console.log(new Date().toISOString());
+    console.log('Incoming image upload request');
+    console.log('IP: ' + clientIP);
+    console.log('File Name: ' + req.headers.filename);
 
-    let fileName = crypto.randomBytes(20).toString('hex'); // Generate a random file name
-    let fileExtension = '';
+    let token = req.headers.token;
+    let expirationInHours = req.headers.expiration || 24; // Extract expiration from request headers, default to 24 hours
+    let secondsNow = new Date().getTime() / 1000;
 
-    // Extract file extension from content type header
-    if (req.headers['content-type']) {
-        fileExtension = '.' + req.headers['content-type'].split('/')[1];
-    }
+    db.get('SELECT name FROM credentials WHERE apitoken = ? AND (expiration < ? OR expiration == 0)', [token, secondsNow], function (err, row) {
+        if (err || !row) {
+            res.writeHead(403, { 'Content-Type': 'text/plain' });
+            res.end('Forbidden!');
+            console.log('Auth Failed');
+            return;
+        }
 
-    // Default to .png if no extension found
-    if (!fileExtension) {
-        fileExtension = '.png';
-    }
+        console.log('Auth OK - ' + row.name);
+        console.log('Saving uploaded image');
+        let fileName = crypto.randomBytes(20).toString('hex'); // Generate a random file name
+        let fileExtension = '';
 
-    fileName += fileExtension;
+        // Extract file extension from content type header
+        if (req.headers['content-type']) {
+            fileExtension = '.' + req.headers['content-type'].split('/')[1];
+        }
 
-    let filePath = path.join(__dirname, 'download', fileName);
-    let fileStream = fs.createWriteStream(filePath, { encoding: 'binary' }); // Specify binary encoding
+        // Default to .png if no extension found
+        if (!fileExtension) {
+            fileExtension = '.png';
+        }
 
-    req.setEncoding('binary'); // Set encoding for request stream
+        fileName += fileExtension;
 
-    req.on('data', (chunk) => {
-        fileStream.write(chunk, 'binary'); // Write only image data to file stream
-    });
+        let filePath = path.join(__dirname, 'download', fileName);
+        let fileStream = fs.createWriteStream(filePath, { encoding: 'binary' }); // Specify binary encoding
 
-    req.on('end', () => {
-        let expiration = req.headers.expiration || 60; // Extract expiration from request headers
-        let secondsNow = new Date().getTime() / 1000;
-        expiration = (parseInt(expiration) * 3600) + secondsNow; // Convert expiration to seconds and add to current time
-        let ogFileName = req.headers.filename || fileName; // Extract original filename from request headers
-        let token = generateToken();
+        req.setEncoding('binary'); // Set encoding for request stream
 
-        db.run('INSERT INTO images (token, filename, ogfilename, expiration) VALUES (?, ?, ?, ?)', [token, fileName, ogFileName, expiration], function (err) {
-            if (err) {
-                console.error(err);
-                res.writeHead(500, { 'Content-Type': 'text/plain' });
-                res.end('Error saving image info to database');
-                return;
-            }
 
-            // Send the token as a response
-            res.writeHead(200, { 'Content-Type': 'text/plain' });
-            res.end(token);
+        req.on('data', (chunk) => {
+            fileStream.write(chunk, 'binary'); // Write only image data to file stream
         });
-    });
 
-    fileStream.on('error', (err) => {
-        console.error(err);
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end('Error saving uploaded file');
-    });
+        req.on('end', () => {
+            let secondsNow = new Date().getTime() / 1000;
+            let expiration = (parseInt(expirationInHours) * 3600) + secondsNow; // Convert expiration to seconds and add to current time
+            let ogFileName = req.headers.filename || fileName; // Extract original filename from request headers
+            let token = generateToken();
 
-    fileStream.on('finish', () => {
-        fileStream.end(); // Close the file stream after finishing writing
+            db.run('INSERT INTO images (token, filename, ogfilename, expiration) VALUES (?, ?, ?, ?)', [token, fileName, ogFileName, expiration], function (err) {
+                if (err) {
+                    console.error(err);
+                    res.writeHead(500, { 'Content-Type': 'text/plain' });
+                    res.end('Error saving image info to database');
+                    return;
+                }
+
+                // Send the token as a response
+                res.writeHead(200, { 'Content-Type': 'text/plain' });
+                res.end(token);
+            });
+        });
+
+        fileStream.on('error', (err) => {
+            console.error(err);
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end('Error saving uploaded file');
+        });
+
+        fileStream.on('finish', () => {
+            fileStream.end(); // Close the file stream after finishing writing
+        });
+
+        console.log('Image saved successfully');
+        console.log('Saved file name: ' + fileName);
+        console.log('Expiration: ' + expirationInHours + ' hours');
     });
 }
 

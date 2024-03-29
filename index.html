@@ -1,55 +1,63 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload Image</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload Image</title>
 </head>
+
 <body>
-    <h1>Upload Image</h1>
-    <input type="file" id="file" name="file"><br>
-    <label for="expiration">Expiration (minutes):</label><br>
-    <input type="number" id="expiration" name="expiration" value="60"><br><br>
-    <button onclick="uploadImage()">Upload</button>
-    <!-- Display token link here -->
-    <div id="tokenLink"></div>
+  <h1>Upload Image</h1>
+  <input type="file" id="file" name="file"><br>
+  <label for="expiration">Expiration (hours):</label><br>
+  <input type="number" id="expiration" name="expiration" value="24"><br><br>
+  <label for="token">Token:</label><br>
+  <input type="text" id="token" name="expiration"><br><br>
+  <button onclick="uploadImage()">Upload</button>
+  <!-- Display token link here -->
+  <div id="tokenLink"></div>
 
-    <script>
-        function uploadImage() {
-            const fileInput = document.getElementById('file');
-            const expirationInput = document.getElementById('expiration');
-            const file = fileInput.files[0];
-            const expiration = expirationInput.value;
+  <script>
+    function uploadImage() {
+      const fileInput = document.getElementById('file');
+      const expirationInput = document.getElementById('expiration');
+      const tokenInput = document.getElementById('token');
+      const file = fileInput.files[0];
+      const expiration = expirationInput.value;
+      const token = tokenInput.value;
 
-            fetch('/upload', {
-                method: 'POST',
-                body: file,
-                headers: {
-                    // Specify the content type of the file being uploaded
-                    'Content-Type': file.type || 'application/octet-stream',
-                    // Pass expiration time as a header
-                    'expiration': expiration,
-                    'filename': file.name
-                }
-            })
-            .then(response => {
-                if (response.ok) {
-                    console.log('Image uploaded successfully');
-                    return response.text(); // Return the token from the response
-                } else {
-                    console.error('Image upload failed');
-                    // Handle error response
-                }
-            })
-            .then(token => {
-                // Display token as a link
-                document.getElementById('tokenLink').innerHTML = `<a href="/dip/${token}">${token}</a>`;
-            })
-            .catch(error => {
-                console.error('Error uploading image:', error);
-                // Handle network error
-            });
+      fetch('/upload', {
+        method: 'POST',
+        body: file,
+        headers: {
+          // Specify the content type of the file being uploaded
+          'Content-Type': file.type || 'application/octet-stream',
+          // Pass expiration time as a header
+          'token': token,
+          'expiration': expiration,
+          'filename': file.name
         }
-    </script>
+      })
+        .then(response => {
+          if (response.ok) {
+            console.log('Image uploaded successfully');
+            return response.text(); // Return the token from the response
+          } else {
+            console.error('Image upload failed');
+            // Handle error response
+          }
+        })
+        .then(token => {
+          // Display token as a link
+          document.getElementById('tokenLink').innerHTML = `<a href="/dip/${token}">${token}</a>`;
+        })
+        .catch(error => {
+          console.error('Error uploading image:', error);
+          // Handle network error
+        });
+    }
+  </script>
 </body>
+
 </html>
