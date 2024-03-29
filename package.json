@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "formidable": "^3.5.1",
+    "install": "^0.13.0",
+    "npm": "^10.5.0",
+    "sqlite3": "^5.1.7"
+  }
+}

@@ -1,143 +1,55 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Simple upload and download file server</title>
-<style>
-body{
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  align-content: center;
-  align-items: center;
-}
-#toast {
-    visibility: hidden;
-    background-color: black;
-    min-width: 250px;
-    margin-left: -125px;
-    color: #fff;
-    text-align: center;
-    border-radius: 2px;
-    padding: 16px;
-    position: fixed;
-    z-index: 1;
-    left: 50%;
-    bottom: 30px;
-}
-.toast-visible-error{
-  visibility: visible !important;
-  animation: fadein 0.5s, fadeout 0.5s 2.5s;
-  background-color: red !important;
-}
-.toast-visible-success{
-  visibility: visible !important;
-  animation: fadein 0.5s, fadeout 0.5s 2.5s;
-  background-color: green !important;
-}
-
-@keyframes fadein {
-    from {bottom: 0; opacity: 0;}
-    to {bottom: 30px; opacity: 1;}
-}
-@keyframes fadeout {
-    from {bottom: 30px; opacity: 1;}
-    to {bottom: 0; opacity: 0;}
-}
-.btn{
-    display: inline-block;
-    min-width: 88px;
-    height: 36px;
-    line-height: 36px;
-    border: none;
-    border-radius: 5px;
-    background-color: orange;
-    text-align: center;
-    text-decoration: none;
-    text-transform: uppercase;
-    padding: 0 10px;
-    color: white;
-    cursor: pointer;
-    transition: opacity 0.25s ease-in-out;
-}
-
-.btn-raised{
-   box-shadow: var(--bs1); 
-}
-
-.hidden{
-  display: none;
-}
-</style>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Image</title>
 </head>
-
 <body>
-  <h3> Simple upload and download file server</h3>
-  <!-- <button onClick="uploadFile" class="btn btn-raised">Upload</button> -->
-  <label for="upload" class="btn btn-raised">Upload</label>
-  <input class="hidden" id="upload" type="file" onchange="uploadFile(event)" />
-  <ol id="download"></ol>
-  <div id="toast"></div>
-  <script>
-      var downloadDOM = document.getElementById('download');
-      var toastDOM = document.getElementById('toast');
-      showUploadedFiles();
+    <h1>Upload Image</h1>
+    <input type="file" id="file" name="file"><br>
+    <label for="expiration">Expiration (minutes):</label><br>
+    <input type="number" id="expiration" name="expiration" value="60"><br><br>
+    <button onclick="uploadImage()">Upload</button>
+    <!-- Display token link here -->
+    <div id="tokenLink"></div>
 
-      function uploadFile(event){
-        console.log('inside uploadFile')
-        let target = event.target || event.srcElement || event.currentTarget;
-        let file = target.files[0];
-        let xhr = new XMLHttpRequest();
-        xhr.open('POST', '/upload/'+file.name, true);
-        xhr.setRequestHeader('Content-Type', 'application/octate-stream');
-        xhr.onreadystatechange = function(){
-          event = null;
-          if(xhr.readyState === 4) {
-            if(xhr.status === 200){
-              showToastMessage(xhr.responseText, 'success');
-              showUploadedFiles();
-            }else{
-              showToastMessage(xhr.responseText, 'error');
-            }
-          }
-        }
-        xhr.send(file);
-        event.target.value = "";
-      }
-      
-      function showUploadedFiles(){
-        let xhr = new XMLHttpRequest();
-        xhr.open('GET', '/list', true);
-        xhr.onreadystatechange = function(){
-          if(xhr.readyState === 4){
-            if(xhr.status === 200){
-              let listOfFile = JSON.parse(xhr.responseText);
-              let listOfFileHTML = ""
-              for(var i=0; i<listOfFile.length; i++){
-                listOfFileHTML = listOfFileHTML + "<li> <a href='/display/" + listOfFile[i] +"'>" + listOfFile[i] + "</a></li>"
-              }
-              downloadDOM.innerHTML = listOfFileHTML;
-            }else{
-      
-            }
-          }
-        }
-        xhr.send();
-      }
+    <script>
+        function uploadImage() {
+            const fileInput = document.getElementById('file');
+            const expirationInput = document.getElementById('expiration');
+            const file = fileInput.files[0];
+            const expiration = expirationInput.value;
 
-      function showToastMessage(msg, type){
-        console.log('inside showtoast mesage', msg, type)
-        toastDOM.innerText = msg;
-        if(type === 'error'){
-          toastDOM.classList.add('toast-visible-error');
-          setTimeout(function() {toastDOM.classList.remove('toast-visible-error')}, 3000);
-        }else{
-          console.log('toastdom', toastDOM)
-          toastDOM.classList.add('toast-visible-success');        
-          setTimeout(function() {toastDOM.classList.remove('toast-visible-success')}, 3000);
+            fetch('/upload', {
+                method: 'POST',
+                body: file,
+                headers: {
+                    // Specify the content type of the file being uploaded
+                    'Content-Type': file.type || 'application/octet-stream',
+                    // Pass expiration time as a header
+                    'expiration': expiration,
+                    'filename': file.name
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    console.log('Image uploaded successfully');
+                    return response.text(); // Return the token from the response
+                } else {
+                    console.error('Image upload failed');
+                    // Handle error response
+                }
+            })
+            .then(token => {
+                // Display token as a link
+                document.getElementById('tokenLink').innerHTML = `<a href="/dip/${token}">${token}</a>`;
+            })
+            .catch(error => {
+                console.error('Error uploading image:', error);
+                // Handle network error
+            });
         }
-      }
-  </script>
+    </script>
 </body>
 </html>
-
