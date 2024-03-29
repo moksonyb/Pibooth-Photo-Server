@@ -9,7 +9,6 @@ const requestIp = require('request-ip')
 let port = 3000;
 let clientIP;
 let db = initializeDatabase(); // Initialize the database on server start
-const cleanupInterval = 24 * 60 * 60 * 1000; // 24 hours in milliseconds - cleanup all expired images and tokens
 const httpServer = http.createServer(requestHandler);
 
 if (process.argv[2] && process.argv[2] === '-h') {
@@ -25,6 +24,7 @@ if (process.argv[2] && process.argv[2] === '-h') {
     console.log("node server.js -s List all API tokens and their information");
     console.log("node server.js -s remove [id] Remove an API token by id");
     console.log("node server.js -c Remove all expired images and API tokens");
+    console.log("node server.js -i [hours] Set the cleanup interval in hours (default is 0 - disabled)");
     console.log("node server.js -purge images Remove all images");
     console.log("node server.js -purge tokens Remove all API tokens");
     console.log("node server.js -purge all Remove all images and API tokens");
@@ -184,16 +184,46 @@ if (process.argv[2] && process.argv[2] === '-h') {
             });
         });
     }
-} else {
-    setInterval(performCleanup, cleanupInterval); // Perform cleanup at regular intervals
-    console.log('Server is starting...');
-    console.log('Cleanup interval: ' + cleanupInterval/(60*60*1000) + ' hours');
-    httpServer.listen(port, () => {
-        console.log('');
-        console.log(new Date().toISOString());
-        console.log('Server is listening on port ' + port);
+} else if (process.argv[2] && process.argv[2] === '-i') {
+    console.log('Setting cleanup interval');
+    db.run('UPDATE settings SET value = ? WHERE name = "cleanupInterval"', [process.argv[3]], function (err) {
+        if (err) {
+            console.error('Error setting cleanup interval', err);
+            return;
+        }
+        console.log('Cleanup interval set successfully please restart the server to apply changes');
         console.log('');
     });
+} else {
+    console.log('Server is starting...');
+    getSettings('cleanupInterval', (interval) => {
+
+        let cleanupInterval = parseInt(interval) * 60 * 60 * 1000; // Convert hours to milliseconds
+        if (cleanupInterval != 0) {
+        setInterval(performCleanup, cleanupInterval); // Perform cleanup at regular intervals
+        console.log('Cleanup interval: ' + cleanupInterval / (60 * 60 * 1000) + ' hours');
+        } else {
+            console.log('Auto cleanup is disabled');
+        }
+
+        httpServer.listen(port, () => {
+            console.log('');
+            console.log(new Date().toISOString());
+            console.log('Server is listening on port ' + port);
+            console.log('');
+        });
+    });
+}
+
+function getSettings(name, callback) {
+    db.get('SELECT value value FROM settings WHERE name = ?', [name], function (err, row) {
+        if (err || !row) {
+            callback(null);
+            return;
+        }
+        callback(row.value);
+    }
+    );
 }
 
 function requestHandler(req, res) {
@@ -235,7 +265,10 @@ function initializeDatabase() {
             apitoken TEXT NOT NULL,
             date DATETIME DEFAULT CURRENT_TIMESTAMP,
             expiration INTEGER
-        )`);
+          )`);
+            db.run('CREATE TABLE settings (id INTEGER PRIMARY KEY, name TEXT NOT NULL, value TEXT NOT NULL)');
+            db.run('INSERT INTO settings (name, value) VALUES ("version", "1.0")');
+            db.run('INSERT INTO settings (name, value) VALUES ("cleanupInterval", "0")');
             console.log('Database and table created successfully.');
         });
     }
@@ -255,7 +288,7 @@ function performCleanup() {
 function cleanupExpiredItems(callback) {
     let secondsNow = new Date().getTime() / 1000;
     let files = fs.readdirSync(path.join(__dirname, 'download'));
-    
+
     // Remove expired images from storage
     files.forEach(file => {
         db.get('SELECT expiration expiration FROM images WHERE filename = ?', [file], function (err, row) {
@@ -288,7 +321,7 @@ function cleanupExpiredItems(callback) {
             }
             console.log('Expired API tokens removed successfully');
             console.log('');
-            
+
             // Invoke the callback once cleanup is complete
             if (callback && typeof callback === 'function') {
                 callback();
