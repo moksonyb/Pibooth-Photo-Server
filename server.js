@@ -44,14 +44,13 @@ if (process.argv[2] && process.argv[2] === '-h') {
 } else if (process.argv[2] && process.argv[2] === '-l') {
     if (process.argv[3] && process.argv[3] === 'remove') {
         console.log('Removing image');
-        files = fs.readdirSync(path.join(__dirname, 'download'));
-        files.forEach(file => {
-            db.get('SELECT filename filename FROM images WHERE id = ?', [process.argv[4]], function (err, row) {
-                if (err || !row) {
-                    return;
-                }
-                fs.unlinkSync(path.join(__dirname, 'download', row.filename));
-            });
+
+        db.get('SELECT filename filename FROM images WHERE id = ?', [process.argv[4]], function (err, row) {
+            if (err || !row) {
+                return;
+            }
+            fs.unlinkSync(path.join(__dirname, 'download', row.filename));
+            return;
         });
         db.run('DELETE FROM images WHERE id = ?', [process.argv[4]], function (err) {
             if (err) {
