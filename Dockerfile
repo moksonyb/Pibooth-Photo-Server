@@ -1,9 +1,20 @@
-FROM node:14.15.0-alpine
+# Use the official Node.js image as base
+FROM node:latest
 
-WORKDIR /app
+# Set working directory inside the container
+WORKDIR /usr/src/app
 
-ADD . .
+# Copy package.json and package-lock.json to the working directory
+COPY package*.json ./
 
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the application code to the working directory
+COPY . .
+
+# Expose port 3000 (the port your server listens on)
 EXPOSE 3000
 
-CMD node server.js
+# Command to run the server
+CMD ["node", "server.js"]
