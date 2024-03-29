@@ -369,21 +369,26 @@ function generateToken() {
 }
 
 function sendIndexHtml(res) {
-    let indexFile = path.join(__dirname, 'index.html');
-    fs.readFile(indexFile, (err, content) => {
-        if (err) {
-            res.writeHead(404, { 'Content-Type': 'text' });
-            res.write('Image Not Found!');
-            res.end();
-        } else {
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            // Display the token as a link
-            let token = generateToken();
-            content = content.toString().replace('<!-- insert token here -->', `<a href="/dip/${token}">${token}</a>`);
-            res.write(content);
-            res.end();
-        }
-    });
+    res.writeHead(302, {
+        'Location': 'https://msvincognito.nl' // Redirect to the main website
+      });
+    res.end();
+
+    // let indexFile = path.join(__dirname, 'index.html');
+    // fs.readFile(indexFile, (err, content) => {
+    //     if (err) {
+    //         res.writeHead(404, { 'Content-Type': 'text' });
+    //         res.write('Image Not Found!');
+    //         res.end();
+    //     } else {
+    //         res.writeHead(200, { 'Content-Type': 'text/html' });
+    //         // Display the token as a link
+    //         let token = generateToken();
+    //         content = content.toString().replace('<!-- insert token here -->', `<a href="/dip/${token}">${token}</a>`);
+    //         res.write(content);
+    //         res.end();
+    //     }
+    // });
 }
 
 function sendDisplayedImage(url, res) {
