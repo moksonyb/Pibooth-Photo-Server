@@ -4,18 +4,110 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
 
-let port = process.argv[2] || 3000;
+let port = 3000;
 let db = initializeDatabase(); // Initialize the database on server start
 const httpServer = http.createServer(requestHandler);
-httpServer.listen(port, () => {
-    console.log('server is listening on port ' + port);
-});
+
+if (process.argv[2] && process.argv[2] === '-h') {
+    console.log("----HELP----");
+    console.log("Usage: node server.js [options]");
+    console.log("");
+    console.log("node server.js Start the server");
+    console.log("node server.js -h Display this help message");
+    console.log("node server.js -k [name] [expiration] Generate an API token with the specified name and expiration in days");
+    console.log("node server.js -v [token] Validate an API token");
+    console.log("node server.js -l List all uploaded images and all of their information");
+    console.log("node server.js -l remove [id] Remove an image by id");
+    console.log("node server.js -s List all API tokens and their information");
+    console.log("node server.js -s remove [id] Remove an API token by id");
+    console.log("node server.js -c Remove all expired images and API tokens");
+    process.exit();
+} else if (process.argv[2] && process.argv[2] === '-k') {
+    console.log('Generating API token');
+    generateApiToken(process.argv[3], process.argv[4], (err, token) => {
+        if (err) {
+            console.error(err);
+            return;
+        }
+        console.log(token);
+        process.exit();
+    });
+} else if (process.argv[2] && process.argv[2] === '-v') {
+    console.log('Validating API token');
+    validateApiToken(process.argv[3], isValid => {
+        console.log(isValid ? 'Token is valid' : 'Token is not valid');
+        process.exit();
+    });
+} else if (process.argv[2] && process.argv[2] === '-l') {
+    if (process.argv[3] && process.argv[3] === 'remove') {
+        console.log('Removing image');
+        db.run('DELETE FROM images WHERE id = ?', [process.argv[4]], function (err) {
+            if (err) {
+                console.error('Error removing image from database', err);
+                return;
+            }
+            console.log('Image removed successfully');
+            console.log('');
+        });
+    }
+    console.log('Listing all uploaded images');
+    db.all('SELECT id id, token token, filename filename, ogfilename ogfilename, date date, expiration expiration FROM images', function (err, rows) {
+        if (err) {
+            console.error('Error listing images from database', err);
+            return;
+        }
+        console.log('');
+        console.log('id : token : filename : ogfilename : date : expiration');
+        console.log('--------------------------------------------------------');
+        rows.forEach(row => {
+            var exp = new Date(0); // The 0 there is the key, which sets the date to the epoch
+            exp.setUTCSeconds(row.expiration)
+            console.log(row.id + ' : ' + row.token + ' : ' + row.filename + ' : ' + row.ogfilename + ' : ' + row.date + ' : ' + exp.toISOString());
+        });
+        process.exit();
+    });
+
+
+} else if (process.argv[2] && process.argv[2] === '-s') {
+    if (process.argv[3] && process.argv[3] === 'remove') {
+        console.log('Removing API token');
+        db.run('DELETE FROM credentials WHERE id = ?', [process.argv[4]], function (err) {
+            if (err) {
+                console.error('Error removing api token from database', err);
+                return;
+            }
+            console.log('API token removed successfully');
+            console.log('');
+        });
+    }
+    console.log('Listing all API tokens');
+    db.all('SELECT id id, name name, apitoken apitoken, date date, expiration expiration FROM credentials', function (err, rows) {
+        if (err) {
+            console.error('Error listing api tokens from database', err);
+            return;
+        }
+        console.log('');
+        console.log('id : name : apitoken : date : expiration');
+        console.log('---------------------------------------------');
+        rows.forEach(row => {
+            console.log(row.id + ' : ' + row.name + ' : ' + row.apitoken + ' : ' + row.date + ' : ' + row.expiration);
+        });
+        process.exit();
+    });
+
+
+} else {
+    httpServer.listen(port, () => {
+        console.log('Server is listening on port ' + port);
+    });
+}
+
 
 function requestHandler(req, res) {
     if (req.url === '/') {
         sendIndexHtml(res);
-    // } else if (req.url === '/list') {
-    //     sendListOfUploadedImages(res);
+        // } else if (req.url === '/list') {
+        //     sendListOfUploadedImages(res);
     } else if (/\/dip\/[^\/]+$/.test(req.url)) {
         sendDisplayedImage(req.url, res);
     } else if (/\/download\/[^\/]+$/.test(req.url)) {
@@ -28,25 +120,59 @@ function requestHandler(req, res) {
 }
 
 function initializeDatabase() {
-  const dbPath = path.join(__dirname, 'images.db');
-  const dbExists = fs.existsSync(dbPath);
-  const db = new sqlite3.Database(dbPath);
+    const dbPath = path.join(__dirname, 'images.db');
+    const dbExists = fs.existsSync(dbPath);
+    const db = new sqlite3.Database(dbPath);
 
-  if (!dbExists) {
-      // Database file doesn't exist, create the database and the table
-      db.serialize(() => {
-          db.run(`CREATE TABLE images (
+    if (!dbExists) {
+        // Database file doesn't exist, create the database and the table
+        db.serialize(() => {
+            db.run(`CREATE TABLE images (
               id INTEGER PRIMARY KEY,
               token TEXT NOT NULL,
               filename TEXT NOT NULL,
               ogfilename TEXT NOT NULL,
+              date DATETIME DEFAULT CURRENT_TIMESTAMP,
               expiration INTEGER
           )`);
-          console.log('Database and table created successfully.');
-      });
-  }
+            db.run(`CREATE TABLE credentials (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            apitoken TEXT NOT NULL,
+            date DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expiration INTEGER
+        )`);
+            console.log('Database and table created successfully.');
+        });
+    }
 
-  return db;
+    return db;
+}
+
+function generateApiToken(name, expiration, callback) {
+    let token = generateToken();
+    let secondsNow = new Date().getTime() / 1000;
+    expiration == 0 ? 0 : (parseInt(expiration) * 3600 * 24) + secondsNow; // Convert expiration to seconds and add to current time 0 means never expire
+
+    db.run('INSERT INTO credentials (name, apitoken, expiration) VALUES (?, ?, ?)', [name, token, expiration], function (err) {
+        if (err) {
+            console.error('Error saving api token to database', err);
+            callback(err, null); // Pass error to callback
+            return;
+        }
+        callback(null, token); // Pass token to callback
+    });
+}
+
+function validateApiToken(token, callback) {
+    let secondsNow = new Date().getTime() / 1000;
+    db.get('SELECT * FROM credentials WHERE apitoken = ? AND (expiration > ? OR expiration == 0)', [token, secondsNow], function (err, row) {
+        if (err || !row) {
+            callback(false); // Pass false to indicate invalid token
+        } else {
+            callback(true); // Pass true to indicate valid token
+        }
+    });
 }
 
 function generateToken() {
@@ -280,10 +406,9 @@ function saveUploadedImage(req, res) {
     req.on('end', () => {
         let expiration = req.headers.expiration || 60; // Extract expiration from request headers
         let secondsNow = new Date().getTime() / 1000;
-        expiration = (parseInt(expiration)*3600) + secondsNow; // Convert expiration to seconds and add to current time
+        expiration = (parseInt(expiration) * 3600) + secondsNow; // Convert expiration to seconds and add to current time
         let ogFileName = req.headers.filename || fileName; // Extract original filename from request headers
         let token = generateToken();
-        console.log(ogFileName);
 
         db.run('INSERT INTO images (token, filename, ogfilename, expiration) VALUES (?, ?, ?, ?)', [token, fileName, ogFileName, expiration], function (err) {
             if (err) {
@@ -311,7 +436,7 @@ function saveUploadedImage(req, res) {
 }
 
 function sendInvalidRequest(res) {
-  res.writeHead(400, { 'Content-Type': 'application/json' });
-  res.write('Invalid Request');
-  res.end();
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.write('Invalid Request');
+    res.end();
 }
