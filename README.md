@@ -136,7 +136,7 @@ docker build -t pibooth-images-server:1.0 .
 Execute the following command in the terminal:
 
 ```bash
-docker run -p 3000:3000 -v "$(pwd)/download:/usr/src/app/download" -v $(pwd)/data:/usr/src/app/data --restart always -d pibooth-server
+docker run -p 3000:3000 -v "$(pwd)/download:/usr/src/app/download" -v $(pwd)/data:/usr/src/app/data --restart always -d pibooth-images-server:1.0
 ```
 
 Alternatively, you can execute the provided shell script:
