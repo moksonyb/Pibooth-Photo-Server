@@ -28,6 +28,7 @@ if (process.argv[2] && process.argv[2] === '-h') {
     console.log("node server.js -purge images Remove all images");
     console.log("node server.js -purge tokens Remove all API tokens");
     console.log("node server.js -purge all Remove all images and API tokens");
+    console.log("node server.js -r [url] set the redirect url");
 } else if (process.argv[2] && process.argv[2] === '-k') {
     console.log('Generating API token');
     generateApiToken(process.argv[3], process.argv[4], (err, token) => {
@@ -194,14 +195,24 @@ if (process.argv[2] && process.argv[2] === '-h') {
         console.log('Cleanup interval set successfully please restart the server to apply changes');
         console.log('');
     });
+} else if (process.argv[2] && process.argv[2] === '-r') {
+    console.log('Setting redirect url');
+    db.run('UPDATE settings SET value = ? WHERE name = "redirectUrl"', [process.argv[3]], function (err) {
+        if (err) {
+            console.error('Error setting redirect url', err);
+            return;
+        }
+        console.log('Redirect url set successfully');
+        console.log('');
+    });
 } else {
     console.log('Server is starting...');
     getSettings('cleanupInterval', (interval) => {
 
         let cleanupInterval = parseInt(interval) * 60 * 60 * 1000; // Convert hours to milliseconds
         if (cleanupInterval != 0) {
-        setInterval(performCleanup, cleanupInterval); // Perform cleanup at regular intervals
-        console.log('Cleanup interval: ' + cleanupInterval / (60 * 60 * 1000) + ' hours');
+            setInterval(performCleanup, cleanupInterval); // Perform cleanup at regular intervals
+            console.log('Cleanup interval: ' + cleanupInterval / (60 * 60 * 1000) + ' hours');
         } else {
             console.log('Auto cleanup is disabled');
         }
@@ -230,8 +241,6 @@ function requestHandler(req, res) {
     clientIP = requestIp.getClientIp(req);
     if (req.url === '/') {
         sendIndexHtml(res);
-        // } else if (req.url === '/list') {
-        //     sendListOfUploadedImages(res);
     } else if (/\/dip\/[^\/]+$/.test(req.url)) {
         sendDisplayedImage(req.url, res);
     } else if (/\/download\/[^\/]+$/.test(req.url)) {
@@ -269,6 +278,7 @@ function initializeDatabase() {
             db.run('CREATE TABLE settings (id INTEGER PRIMARY KEY, name TEXT NOT NULL, value TEXT NOT NULL)');
             db.run('INSERT INTO settings (name, value) VALUES ("version", "1.0")');
             db.run('INSERT INTO settings (name, value) VALUES ("cleanupInterval", "0")');
+            db.run('INSERT INTO settings (name, value) VALUES ("redirectUrl", "https://google.com")');
             console.log('Database and table created successfully.');
         });
     }
@@ -369,10 +379,12 @@ function generateToken() {
 }
 
 function sendIndexHtml(res) {
-    res.writeHead(302, {
-        'Location': 'https://msvincognito.nl' // Redirect to the main website
-      });
-    res.end();
+    getSettings('redirectUrl', (value) => {
+        res.writeHead(302, {
+            'Location': value // Redirect to the main website
+        });
+        res.end();
+    });
 
     // let indexFile = path.join(__dirname, 'index.html');
     // fs.readFile(indexFile, (err, content) => {
