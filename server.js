@@ -253,7 +253,10 @@ function requestHandler(req, res) {
 }
 
 function initializeDatabase() {
-    const dbPath = path.join(__dirname, 'images.db');
+    if (!fs.existsSync('data')) {
+        fs.mkdirSync('data');
+    }
+    const dbPath = path.join(__dirname, 'data/images.db');
     const dbExists = fs.existsSync(dbPath);
     const db = new sqlite3.Database(dbPath);
 
@@ -622,6 +625,9 @@ function saveUploadedImage(req, res) {
 
         fileName += fileExtension;
 
+        if (!fs.existsSync('download')) {
+            fs.mkdirSync('download');
+        }
         let filePath = path.join(__dirname, 'download', fileName);
         let fileStream = fs.createWriteStream(filePath, { encoding: 'binary' }); // Specify binary encoding
 
