@@ -1,5 +1,5 @@
 # Pibooth Images Server
-A simple Node.JS server to manage image uploads and downloads from PiBooth. The Pibooth plugin can be found here.
+A simple Node.JS server to manage image uploads and downloads from **[PiBooth](https://pypi.org/project/pibooth/)**. The Pibooth plugin can be found **[here](https://github.com/moksonyb/Pibooth-Photo-Server-Plugin)**.
 
 ## 1. Running in terminal
 
