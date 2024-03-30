@@ -33,6 +33,7 @@ node server.js -c Remove all expired images and API tokens
 node server.js -purge images Remove all images
 node server.js -purge tokens Remove all API tokens
 node server.js -purge all Remove all images and API tokens
+node server.js -r [url] set the redirect url
 ```
 
 ### 1.5 API Documentation: `/upload`
